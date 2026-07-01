@@ -1,0 +1,32 @@
+version: '3.8'
+services:
+  bot:
+    build: ./bot
+    env_file: .env
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    build: ./db
+    env_file: .env
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  db_repl:
+    build: ./db_repl
+    env_file: .env
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MASTER_HOST: db
+      REPL_USER: ${REPL_USER}
+      REPL_PASSWORD: ${REPL_PASSWORD}
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  db_data:
