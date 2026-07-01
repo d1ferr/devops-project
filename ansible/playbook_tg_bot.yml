@@ -1,0 +1,135 @@
+---
+- name: Setup PostgreSQL Master
+  hosts: db_master
+  become: yes
+  tasks:
+    - name: Install PostgreSQL
+      apt:
+        name: postgresql
+        state: present
+        update_cache: yes
+    - name: Copy postgresql.conf
+      copy:
+        src: config-postgresql
+        dest: /etc/postgresql/15/main/postgresql.conf
+      notify: restart postgresql
+    - name: Copy pg_hba.conf
+      copy:
+        src: pg_hba.conf
+        dest: /etc/postgresql/15/main/pg_hba.conf
+      notify: restart postgresql
+    - name: Create archive directory
+      file:
+        path: /var/lib/postgresql/data/archive
+        state: directory
+        owner: postgres
+        group: postgres
+    - name: Start PostgreSQL
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+    - name: Create replication user
+      become_user: postgres
+      shell: |
+        psql -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='repl_user') THEN CREATE ROLE repl_user WITH REPLICATION LOGIN PASSWORD 'repl_password'; END IF; END \$\$;"
+    - name: Create database and tables
+      become_user: postgres
+      shell: |
+        psql -c "SELECT 1 FROM pg_database WHERE datname='repl_db'" | grep -q 1 || psql -c "CREATE DATABASE repl_db;"
+        psql -d repl_db -c "CREATE TABLE IF NOT EXISTS emails (id SERIAL PRIMARY KEY, email VARCHAR(255) NOT NULL);"
+        psql -d repl_db -c "CREATE TABLE IF NOT EXISTS phones (id SERIAL PRIMARY KEY, phone_number VARCHAR(20) NOT NULL);"
+        psql -d repl_db -c "INSERT INTO emails (email) SELECT 'ivanov@mail.ru' WHERE NOT EXISTS (SELECT 1 FROM emails WHERE email='ivanov@mail.ru');"
+        psql -d repl_db -c "INSERT INTO phones (phone_number) SELECT '+79991234567' WHERE NOT EXISTS (SELECT 1 FROM phones WHERE phone_number='+79991234567');"
+  handlers:
+    - name: restart postgresql
+      service:
+        name: postgresql
+        state: restarted
+
+- name: Setup PostgreSQL Slave
+  hosts: db_slave
+  become: yes
+  tasks:
+    - name: Install PostgreSQL
+      apt:
+        name: postgresql
+        state: present
+        update_cache: yes
+    - name: Stop PostgreSQL
+      service:
+        name: postgresql
+        state: stopped
+    - name: Clean data directory
+      shell: rm -rf /var/lib/postgresql/15/main/*
+    - name: Copy pgpass
+      copy:
+        src: pgpass
+        dest: /var/lib/postgresql/.pgpass
+        owner: postgres
+        group: postgres
+        mode: '0600'
+    - name: Run pg_basebackup
+      become_user: postgres
+      shell: |
+        pg_basebackup -R -h 192.168.1.115 -U repl_user -D /var/lib/postgresql/15/main -P --wal-method=stream
+      environment:
+        PGPASSWORD: repl_password
+    - name: Start PostgreSQL Slave
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+
+- name: Setup and run Telegram Bot
+  hosts: bot
+  become: yes
+  tasks:
+    - name: Install dependencies
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - git
+        state: present
+        update_cache: yes
+    - name: Clone bot from GitHub
+      git:
+        repo: https://github.com/d1ferr/devops-project.git
+        dest: /opt/tg-bot
+        version: docker
+    - name: Install Python packages
+      pip:
+        requirements: /opt/tg-bot/bot/requirements.txt
+        executable: pip3
+        extra_args: --break-system-packages
+    - name: Create bot service
+      copy:
+        content: |
+          [Unit]
+          Description=Telegram Bot
+          After=network.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/bin/python3 /opt/tg-bot/bot/bot.py
+          Environment=BOT_TOKEN=8287749023:AAGwckt_5nntdCQ6l1BCqi0QGoVeuCNj6eA
+          Environment=DB_HOST=192.168.1.115
+          Environment=DB_PORT=5432
+          Environment=DB_NAME=repl_db
+          Environment=DB_USER=postgres
+          Environment=DB_PASSWORD=postgres
+          Environment=SSH_HOST=192.168.1.106
+          Environment=SSH_USER=root
+          Environment=SSH_PASSWORD=admin
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/tg-bot.service
+    - name: Start bot
+      systemd:
+        name: tg-bot
+        state: started
+        enabled: yes
+        daemon_reload: yes
