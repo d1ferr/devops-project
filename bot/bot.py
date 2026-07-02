@@ -105,24 +105,29 @@ def help_cmd(msg):
 # ----------------------- ЛОГИ РЕПЛИКАЦИИ -----------------------
 @bot.message_handler(commands=["get_repl_logs"])
 def get_repl_logs(msg):
-    files = glob.glob(os.path.join(LOG_DIR, "postgresql-*.log"))
-    if not files:
-        bot.send_message(msg.chat.id, "Лог-файлы не найдены.")
-        return
-    newest = max(files, key=os.path.getmtime)
+    db_master_host = os.getenv("DB_HOST", "192.168.1.115")
+    cmd = (
+        f"sudo bash -c \"grep -iE '{'|'.join(REPL_KEYWORDS)}' "
+        f"/var/log/postgresql/postgresql-*.log 2>/dev/null | tail -30\""
+    )
     try:
-        with open(newest, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-    except PermissionError:
-        bot.send_message(msg.chat.id, "Нет прав на чтение логов.")
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(hostname=db_master_host, username="ansible",
+                       password="ansible", port=22)
+        stdin, stdout, stderr = client.exec_command(cmd, get_pty=True)
+        stdin.write("ansible\n")
+        stdin.flush()
+        data = stdout.read().decode("utf-8", "ignore")
+        client.close()
+    except Exception as e:
+        bot.send_message(msg.chat.id, f"Ошибка подключения к master БД: {e}")
         return
-    matched = [ln.rstrip() for ln in lines if any(k in ln.lower() for k in REPL_KEYWORDS)]
-    if not matched:
+
+    if not data.strip():
         bot.send_message(msg.chat.id, "Строк о репликации не найдено.")
         return
-    text = "\n".join(matched[-30:])
-    reply_long(msg.chat.id, text)
-
+    reply_long(msg.chat.id, data.strip())
 
 # ----------------------- ДАННЫЕ ИЗ БД -----------------------
 @bot.message_handler(commands=["get_emails"])
