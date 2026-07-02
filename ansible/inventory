@@ -1,11 +1,11 @@
 [bot]
-192.168.1.106 ansible_user=root ansible_password=admin
+192.168.1.117 ansible_user=root ansible_password=admin
 
 [db_master]
 192.168.1.115 ansible_user=ansible ansible_password=ansible
 
 [db_slave]
-192.168.1.116 ansible_user=ansible ansible_password=ansible
+192.168.1.112 ansible_user=ansible ansible_password=ansible
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3

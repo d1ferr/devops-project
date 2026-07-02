@@ -11,12 +11,12 @@
     - name: Copy postgresql.conf
       copy:
         src: config-postgresql
-        dest: /etc/postgresql/15/main/postgresql.conf
+        dest: /etc/postgresql/18/main/postgresql.conf
       notify: restart postgresql
     - name: Copy pg_hba.conf
       copy:
         src: pg_hba.conf
-        dest: /etc/postgresql/15/main/pg_hba.conf
+        dest: /etc/postgresql/18/main/pg_hba.conf
       notify: restart postgresql
     - name: Create archive directory
       file:
@@ -61,7 +61,7 @@
         name: postgresql
         state: stopped
     - name: Clean data directory
-      shell: rm -rf /var/lib/postgresql/15/main/*
+      shell: rm -rf /var/lib/postgresql/18/main/*
     - name: Copy pgpass
       copy:
         src: pgpass
@@ -72,7 +72,7 @@
     - name: Run pg_basebackup
       become_user: postgres
       shell: |
-        pg_basebackup -R -h 192.168.1.115 -U repl_user -D /var/lib/postgresql/15/main -P --wal-method=stream
+        pg_basebackup -R -h 192.168.1.115 -U repl_user -D /var/lib/postgresql/18/main -P --wal-method=stream
       environment:
         PGPASSWORD: repl_password
     - name: Start PostgreSQL Slave
